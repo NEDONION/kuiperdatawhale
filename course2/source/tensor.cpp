@@ -269,6 +269,8 @@ void Tensor<float>::Flatten(bool row_major) {
 
 // 随机初始化
 void Tensor<float>::Rand() {
+  // glog 的断言宏。含义是 确保数据不为空
+  // 如果 data_ 为空（即还没初始化/reshape 成实际尺寸），程序会记录错误信息并直接中止（FATAL abort），用于捕获编程时的错误前置条件。
   CHECK(!this->data_.empty());
   this->data_.randn();
 }
@@ -282,6 +284,9 @@ void Tensor<float>::Ones() {
 // 应用函数变换
 void Tensor<float>::Transform(const std::function<float(float)>& filter) {
   CHECK(!this->data_.empty());
+
+  // 将一元函数 filter 逐元素应用到 data_（arma::fcube），原地修改每个元素；无额外拷贝或分配。
+  // 实际调用的是 Armadillo 的 Cube::transform(functor)。
   this->data_.transform(filter);
 }
 
