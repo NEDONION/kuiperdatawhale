@@ -1,101 +1,195 @@
 //
 // Created by fss on 2023/3/20.
 //
+/**
+ * @file tensor_utils.cpp
+ * @brief 张量工具函数的实现文件
+ * @details 该文件实现了张量的各种操作工具函数，包括张量比较、元素级运算、广播等
+ * 提供了张量计算的基础功能支持
+ */
+
 #include <glog/logging.h>
 #include "data/tensor.hpp"
 #include "data/tensor_util.hpp"
 
 namespace kuiper_infer {
+
+/**
+ * @brief 比较两个张量是否相同
+ * @param a 第一个张量
+ * @param b 第二个张量
+ * @param threshold 比较阈值，用于浮点数比较
+ * @return 如果两个张量相同返回true，否则返回false
+ * @details 首先比较形状是否相同，然后使用armadillo的approx_equal函数进行数值比较
+ */
 bool TensorIsSame(const std::shared_ptr<Tensor<float>>& a,
                   const std::shared_ptr<Tensor<float>>& b, float threshold) {
-  CHECK(a != nullptr);
-  CHECK(b != nullptr);
+  CHECK(a != nullptr);  // 检查第一个张量是否为空
+  CHECK(b != nullptr);  // 检查第二个张量是否为空
+  
+  // 首先比较形状是否相同
   if (a->shapes() != b->shapes()) {
     return false;
   }
+  
+  // 使用armadillo的近似相等函数比较数值，考虑浮点误差
   bool is_same = arma::approx_equal(a->data(), b->data(), "absdiff", threshold);
   return is_same;
 }
 
+/**
+ * @brief 张量元素级加法（就地操作）
+ * @param tensor1 第一个输入张量
+ * @param tensor2 第二个输入张量
+ * @param output_tensor 输出张量
+ * @details 将两个张量进行元素级加法，结果存储在output_tensor中
+ * 如果形状不同，会进行广播操作
+ */
 void TensorElementAdd(const std::shared_ptr<Tensor<float>>& tensor1,
                       const std::shared_ptr<Tensor<float>>& tensor2,
                       const std::shared_ptr<Tensor<float>>& output_tensor) {
-  CHECK(tensor1 != nullptr && tensor2 != nullptr && output_tensor != nullptr);
+  CHECK(tensor1 != nullptr && tensor2 != nullptr && output_tensor != nullptr);  // 检查所有张量是否为空
+  
   if (tensor1->shapes() == tensor2->shapes()) {
-    CHECK(tensor1->shapes() == output_tensor->shapes());
+    // 如果形状相同，直接进行加法运算
+    CHECK(tensor1->shapes() == output_tensor->shapes());  // 检查输出张量形状
     output_tensor->set_data(tensor1->data() + tensor2->data());
   } else {
+    // 如果形状不同，需要进行广播操作
     CHECK(tensor1->channels() == tensor2->channels())
-        << "Tensors shape are not adapting";
+        << "Tensors shape are not adapting";  // 检查通道数是否兼容
+    
+    // 进行广播操作，使两个张量形状一致
     const auto& [input_tensor1, input_tensor2] =
         TensorBroadcast(tensor1, tensor2);
+    
+    // 检查广播后的形状是否与输出张量一致
     CHECK(output_tensor->shapes() == input_tensor1->shapes() &&
           output_tensor->shapes() == input_tensor2->shapes());
+    
+    // 执行加法运算
     output_tensor->set_data(input_tensor1->data() + input_tensor2->data());
   }
 }
 
+/**
+ * @brief 张量元素级乘法（就地操作）
+ * @param tensor1 第一个输入张量
+ * @param tensor2 第二个输入张量
+ * @param output_tensor 输出张量
+ * @details 将两个张量进行元素级乘法，结果存储在output_tensor中
+ * 如果形状不同，会进行广播操作
+ */
 void TensorElementMultiply(
     const std::shared_ptr<Tensor<float>>& tensor1,
     const std::shared_ptr<Tensor<float>>& tensor2,
     const std::shared_ptr<Tensor<float>>& output_tensor) {
-  CHECK(tensor1 != nullptr && tensor2 != nullptr && output_tensor != nullptr);
+  CHECK(tensor1 != nullptr && tensor2 != nullptr && output_tensor != nullptr);  // 检查所有张量是否为空
+  
   if (tensor1->shapes() == tensor2->shapes()) {
-    CHECK(tensor1->shapes() == output_tensor->shapes());
-    output_tensor->set_data(tensor1->data() % tensor2->data());
+    // 如果形状相同，直接进行乘法运算
+    CHECK(tensor1->shapes() == output_tensor->shapes());  // 检查输出张量形状
+    output_tensor->set_data(tensor1->data() % tensor2->data());  // 使用%表示元素级乘法
   } else {
+    // 如果形状不同，需要进行广播操作
     CHECK(tensor1->channels() == tensor2->channels())
-        << "Tensors shape are not adapting";
+        << "Tensors shape are not adapting";  // 检查通道数是否兼容
+    
+    // 进行广播操作，使两个张量形状一致
     const auto& [input_tensor1, input_tensor2] =
         TensorBroadcast(tensor1, tensor2);
+    
+    // 检查广播后的形状是否与输出张量一致
     CHECK(output_tensor->shapes() == input_tensor1->shapes() &&
           output_tensor->shapes() == input_tensor2->shapes());
+    
+    // 执行乘法运算
     output_tensor->set_data(input_tensor1->data() % input_tensor2->data());
   }
 }
 
+/**
+ * @brief 张量元素级加法（返回新张量）
+ * @param tensor1 第一个输入张量
+ * @param tensor2 第二个输入张量
+ * @return 包含加法结果的新张量
+ * @details 将两个张量进行元素级加法，返回一个新的张量对象
+ * 如果形状不同，会进行广播操作
+ */
 std::shared_ptr<Tensor<float>> TensorElementAdd(
     const std::shared_ptr<Tensor<float>>& tensor1,
     const std::shared_ptr<Tensor<float>>& tensor2) {
-  CHECK(tensor1 != nullptr && tensor2 != nullptr);
+  CHECK(tensor1 != nullptr && tensor2 != nullptr);  // 检查输入张量是否为空
+  
   if (tensor1->shapes() == tensor2->shapes()) {
-    sftensor output_tensor = TensorCreate(tensor1->shapes());
+    // 如果形状相同，直接进行加法运算
+    sftensor output_tensor = TensorCreate(tensor1->shapes());  // 创建输出张量
     output_tensor->set_data(tensor1->data() + tensor2->data());
     return output_tensor;
   } else {
-    // broadcast
+    // 如果形状不同，需要进行广播操作
     CHECK(tensor1->channels() == tensor2->channels())
-        << "Tensors shape are not adapting";
+        << "Tensors shape are not adapting";  // 检查通道数是否兼容
+    
+    // 进行广播操作，使两个张量形状一致
     const auto& [input_tensor1, input_tensor2] =
         TensorBroadcast(tensor1, tensor2);
+    
+    // 检查广播后的形状是否一致
     CHECK(input_tensor1->shapes() == input_tensor2->shapes());
+    
+    // 创建输出张量并执行加法运算
     sftensor output_tensor = TensorCreate(input_tensor1->shapes());
     output_tensor->set_data(input_tensor1->data() + input_tensor2->data());
     return output_tensor;
   }
 }
 
+/**
+ * @brief 张量元素级乘法（返回新张量）
+ * @param tensor1 第一个输入张量
+ * @param tensor2 第二个输入张量
+ * @return 包含乘法结果的新张量
+ * @details 将两个张量进行元素级乘法，返回一个新的张量对象
+ * 如果形状不同，会进行广播操作
+ */
 std::shared_ptr<Tensor<float>> TensorElementMultiply(
     const std::shared_ptr<Tensor<float>>& tensor1,
     const std::shared_ptr<Tensor<float>>& tensor2) {
-  CHECK(tensor1 != nullptr && tensor2 != nullptr);
+  CHECK(tensor1 != nullptr && tensor2 != nullptr);  // 检查输入张量是否为空
+  
   if (tensor1->shapes() == tensor2->shapes()) {
-    sftensor output_tensor = TensorCreate(tensor1->shapes());
+    // 如果形状相同，直接进行乘法运算
+    sftensor output_tensor = TensorCreate(tensor1->shapes());  // 创建输出张量
     output_tensor->set_data(tensor1->data() % tensor2->data());
     return output_tensor;
   } else {
-    // broadcast
+    // 如果形状不同，需要进行广播操作
     CHECK(tensor1->channels() == tensor2->channels())
-        << "Tensors shape are not adapting";
+        << "Tensors shape are not adapting";  // 检查通道数是否兼容
+    
+    // 进行广播操作，使两个张量形状一致
     const auto& [input_tensor1, input_tensor2] =
         TensorBroadcast(tensor1, tensor2);
+    
+    // 检查广播后的形状是否一致
     CHECK(input_tensor1->shapes() == input_tensor2->shapes());
+    
+    // 创建输出张量并执行乘法运算
     sftensor output_tensor = TensorCreate(input_tensor1->shapes());
     output_tensor->set_data(input_tensor1->data() % input_tensor2->data());
     return output_tensor;
   }
 }
 
+/**
+ * @brief 创建指定维度的张量
+ * @param channels 通道数
+ * @param rows 行数
+ * @param cols 列数
+ * @return 新创建的张量
+ * @details 创建一个指定维度的张量，使用智能指针管理内存
+ */
 std::shared_ptr<Tensor<float>> TensorCreate(uint32_t channels, uint32_t rows,
                                             uint32_t cols) {
   return std::make_shared<Tensor<float>>(channels, rows, cols);

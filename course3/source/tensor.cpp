@@ -1,6 +1,12 @@
 //
 // Created by fss on 22-11-12.
 //
+/**
+ * @file tensor.cpp
+ * @brief 张量类的实现文件
+ * @details 该文件实现了多维张量数据结构，支持张量的创建、复制、移动、形状操作等
+ * 使用armadillo库作为底层矩阵存储，提供高效的数值计算支持
+ */
 
 #include "data/tensor.hpp"
 #include <glog/logging.h>
@@ -8,39 +14,74 @@
 #include <numeric>
 
 namespace kuiper_infer {
+
+/**
+ * @brief 张量构造函数 - 指定通道数、行数、列数
+ * @param channels 通道数
+ * @param rows 行数
+ * @param cols 列数
+ * @details 创建一个指定维度的张量，使用armadillo的fcube存储数据
+ * 根据维度自动推断原始形状向量
+ */
 Tensor<float>::Tensor(uint32_t channels, uint32_t rows, uint32_t cols) {
+  // 创建armadillo浮点立方体，注意参数顺序是(rows, cols, channels)
   data_ = arma::fcube(rows, cols, channels);
+  
+  // 根据维度设置原始形状向量
   if (channels == 1 && rows == 1) {
-    this->raw_shapes_ = std::vector<uint32_t>{cols};
+    this->raw_shapes_ = std::vector<uint32_t>{cols};  // 1D张量
   } else if (channels == 1) {
-    this->raw_shapes_ = std::vector<uint32_t>{rows, cols};
+    this->raw_shapes_ = std::vector<uint32_t>{rows, cols};  // 2D张量
   } else {
-    this->raw_shapes_ = std::vector<uint32_t>{channels, rows, cols};
+    this->raw_shapes_ = std::vector<uint32_t>{channels, rows, cols};  // 3D张量
   }
 }
 
+/**
+ * @brief 张量构造函数 - 指定大小
+ * @param size 张量大小
+ * @details 创建一个1维张量，大小为size
+ */
 Tensor<float>::Tensor(uint32_t size) {
+  // 创建1xsizex1的立方体，表示1维张量
   data_ = arma::fcube(1, size, 1);
   this->raw_shapes_ = std::vector<uint32_t>{size};
 }
 
+/**
+ * @brief 张量构造函数 - 指定行数和列数
+ * @param rows 行数
+ * @param cols 列数
+ * @details 创建一个2维张量，通道数默认为1
+ */
 Tensor<float>::Tensor(uint32_t rows, uint32_t cols) {
+  // 创建rowsxcolsx1的立方体，表示2维张量
   data_ = arma::fcube(rows, cols, 1);
   this->raw_shapes_ = std::vector<uint32_t>{rows, cols};
 }
 
+/**
+ * @brief 张量构造函数 - 指定形状向量
+ * @param shapes 形状向量
+ * @details 根据形状向量创建张量，自动推断维度并设置原始形状
+ */
 Tensor<float>::Tensor(const std::vector<uint32_t>& shapes) {
-  CHECK(!shapes.empty() && shapes.size() <= 3);
+  CHECK(!shapes.empty() && shapes.size() <= 3);  // 检查形状向量的有效性
 
+  // 将形状向量补齐到3维，不足的维度设为1
   uint32_t remaining = 3 - shapes.size();
   std::vector<uint32_t> shapes_(3, 1);
   std::copy(shapes.begin(), shapes.end(), shapes_.begin() + remaining);
 
+  // 提取通道数、行数、列数
   uint32_t channels = shapes_.at(0);
   uint32_t rows = shapes_.at(1);
   uint32_t cols = shapes_.at(2);
 
+  // 创建armadillo立方体
   data_ = arma::fcube(rows, cols, channels);
+  
+  // 设置原始形状向量
   if (channels == 1 && rows == 1) {
     this->raw_shapes_ = std::vector<uint32_t>{cols};
   } else if (channels == 1) {
@@ -50,53 +91,95 @@ Tensor<float>::Tensor(const std::vector<uint32_t>& shapes) {
   }
 }
 
+/**
+ * @brief 拷贝构造函数
+ * @param tensor 要拷贝的张量
+ * @details 深拷贝张量的数据和形状信息
+ */
 Tensor<float>::Tensor(const Tensor& tensor) {
-  if (this != &tensor) {
+  if (this != &tensor) {  // 防止自拷贝
     this->data_ = tensor.data_;
     this->raw_shapes_ = tensor.raw_shapes_;
   }
 }
 
+/**
+ * @brief 移动构造函数
+ * @param tensor 要移动的张量
+ * @details 移动张量的数据和形状信息，原张量变为无效状态
+ */
 Tensor<float>::Tensor(Tensor<float>&& tensor) noexcept {
-  if (this != &tensor) {
+  if (this != &tensor) {  // 防止自移动
     this->data_ = std::move(tensor.data_);
-    this->raw_shapes_ = tensor.raw_shapes_;
+    this->raw_shapes_ = std::move(tensor.raw_shapes_);
   }
 }
 
+/**
+ * @brief 移动赋值运算符
+ * @param tensor 要移动的张量
+ * @return 当前张量的引用
+ * @details 移动赋值张量的数据和形状信息
+ */
 Tensor<float>& Tensor<float>::operator=(Tensor<float>&& tensor) noexcept {
-  if (this != &tensor) {
+  if (this != &tensor) {  // 防止自移动赋值
     this->data_ = std::move(tensor.data_);
-    this->raw_shapes_ = tensor.raw_shapes_;
+    this->raw_shapes_ = std::move(tensor.raw_shapes_);
   }
   return *this;
 }
 
+/**
+ * @brief 拷贝赋值运算符
+ * @param tensor 要拷贝的张量
+ * @return 当前张量的引用
+ * @details 深拷贝赋值张量的数据和形状信息
+ */
 Tensor<float>& Tensor<float>::operator=(const Tensor& tensor) {
-  if (this != &tensor) {
+  if (this != &tensor) {  // 防止自赋值
     this->data_ = tensor.data_;
     this->raw_shapes_ = tensor.raw_shapes_;
   }
   return *this;
 }
 
+/**
+ * @brief 获取张量的行数
+ * @return 行数
+ * @details 从armadillo立方体中获取行数
+ */
 uint32_t Tensor<float>::rows() const {
-  CHECK(!this->data_.empty());
+  CHECK(!this->data_.empty());  // 检查数据是否为空
   return this->data_.n_rows;
 }
 
+/**
+ * @brief 获取张量的列数
+ * @return 列数
+ * @details 从armadillo立方体中获取列数
+ */
 uint32_t Tensor<float>::cols() const {
-  CHECK(!this->data_.empty());
+  CHECK(!this->data_.empty());  // 检查数据是否为空
   return this->data_.n_cols;
 }
 
+/**
+ * @brief 获取张量的通道数
+ * @return 通道数
+ * @details 从armadillo立方体中获取通道数（切片数）
+ */
 uint32_t Tensor<float>::channels() const {
-  CHECK(!this->data_.empty());
+  CHECK(!this->data_.empty());  // 检查数据是否为空
   return this->data_.n_slices;
 }
 
+/**
+ * @brief 获取张量的总元素数
+ * @return 总元素数
+ * @details 计算张量中所有元素的总数
+ */
 uint32_t Tensor<float>::size() const {
-  CHECK(!this->data_.empty());
+  CHECK(!this->data_.empty());  // 检查数据是否为空
   return this->data_.size();
 }
 

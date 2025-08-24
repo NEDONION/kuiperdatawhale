@@ -12,6 +12,12 @@
 // CONDITIONS OF ANY KIND, either express or implied. See the License for the
 // specific language governing permissions and limitations under the License.
 
+/**
+ * @file ir.cpp
+ * @brief PNNX中间表示(IR)的实现文件
+ * @details 该文件实现了PNNX格式的解析和处理功能，包括数据类型转换、图结构解析等
+ */
+
 #include "runtime/ir.h"
 
 #include <limits.h>
@@ -31,72 +37,96 @@
 
 namespace pnnx {
 
+/**
+ * @brief 判断数据类型是否为整数类型
+ * @param type 数据类型标识符
+ * @return 如果是整数类型返回true，否则返回false
+ * @details 根据PNNX的数据类型定义，type为4-9表示各种整数类型
+ */
 static bool type_is_integer(int type)
 {
-    if (type == 1) return false;
-    if (type == 2) return false;
-    if (type == 3) return false;
-    if (type == 4) return true;
-    if (type == 5) return true;
-    if (type == 6) return true;
-    if (type == 7) return true;
-    if (type == 8) return true;
-    if (type == 9) return true;
-    if (type == 10) return false;
-    if (type == 11) return false;
-    if (type == 12) return false;
+    if (type == 1) return false;  // f32 - 32位浮点数
+    if (type == 2) return false;  // f64 - 64位浮点数
+    if (type == 3) return false;  // f16 - 16位浮点数
+    if (type == 4) return true;   // i32 - 32位整数
+    if (type == 5) return true;   // i64 - 64位整数
+    if (type == 6) return true;   // i16 - 16位整数
+    if (type == 7) return true;   // i8 - 8位整数
+    if (type == 8) return true;   // u8 - 8位无符号整数
+    if (type == 9) return true;   // bool - 布尔类型
+    if (type == 10) return false; // cp64 - 64位复数
+    if (type == 11) return false; // cp128 - 128位复数
+    if (type == 12) return false; // cp32 - 32位复数
     return false;
 }
 
+/**
+ * @brief 将数据类型标识符转换为字符串表示
+ * @param type 数据类型标识符
+ * @return 对应的数据类型字符串
+ * @details 用于调试和日志输出，将数字类型标识符转换为可读的字符串
+ */
 static const char* type_to_string(int type)
 {
-    if (type == 1) return "f32";
-    if (type == 2) return "f64";
-    if (type == 3) return "f16";
-    if (type == 4) return "i32";
-    if (type == 5) return "i64";
-    if (type == 6) return "i16";
-    if (type == 7) return "i8";
-    if (type == 8) return "u8";
-    if (type == 9) return "bool";
-    if (type == 10) return "cp64";
-    if (type == 11) return "cp128";
-    if (type == 12) return "cp32";
-    return "null";
+    if (type == 1) return "f32";      // 32位浮点数
+    if (type == 2) return "f64";      // 64位浮点数
+    if (type == 3) return "f16";      // 16位浮点数
+    if (type == 4) return "i32";      // 32位整数
+    if (type == 5) return "i64";      // 64位整数
+    if (type == 6) return "i16";      // 16位整数
+    if (type == 7) return "i8";       // 8位整数
+    if (type == 8) return "u8";       // 8位无符号整数
+    if (type == 9) return "bool";     // 布尔类型
+    if (type == 10) return "cp64";    // 64位复数
+    if (type == 11) return "cp128";   // 128位复数
+    if (type == 12) return "cp32";    // 32位复数
+    return "null";                     // 未知类型
 }
 
+/**
+ * @brief 将数据类型标识符转换为NumPy风格的字符串表示
+ * @param type 数据类型标识符
+ * @return 对应的NumPy数据类型字符串
+ * @details 用于与Python NumPy库的兼容性
+ */
 static const char* type_to_numpy_string(int type)
 {
-    if (type == 1) return "float32";
-    if (type == 2) return "float64";
-    if (type == 3) return "float16";
-    if (type == 4) return "int32";
-    if (type == 5) return "int64";
-    if (type == 6) return "int16";
-    if (type == 7) return "int8";
-    if (type == 8) return "uint8";
-    if (type == 9) return "bool8";
-    if (type == 10) return "csingle";
-    if (type == 11) return "cdouble";
-    if (type == 12) return "chalf";
-    return "null";
+    if (type == 1) return "float32";   // 32位浮点数
+    if (type == 2) return "float64";   // 64位浮点数
+    if (type == 3) return "float16";   // 16位浮点数
+    if (type == 4) return "int32";     // 32位整数
+    if (type == 5) return "int64";     // 64位整数
+    if (type == 6) return "int16";     // 16位整数
+    if (type == 7) return "int8";      // 8位整数
+    if (type == 8) return "uint8";     // 8位无符号整数
+    if (type == 9) return "bool8";     // 布尔类型
+    if (type == 10) return "csingle";  // 64位复数
+    if (type == 11) return "cdouble";  // 128位复数
+    if (type == 12) return "chalf";    // 32位复数
+    return "null";                      // 未知类型
 }
 
+/**
+ * @brief 将数据类型标识符转换为PyTorch风格的字符串表示
+ * @param type 数据类型标识符
+ * @return 对应的PyTorch数据类型字符串
+ * @details 用于与PyTorch框架的兼容性
+ */
 static const char* type_to_dtype_string(int type)
 {
-    if (type == 1) return "torch.float";
-    if (type == 2) return "torch.double";
-    if (type == 3) return "torch.half";
-    if (type == 4) return "torch.int";
-    if (type == 5) return "torch.long";
-    if (type == 6) return "torch.short";
-    if (type == 7) return "torch.int8";
-    if (type == 8) return "torch.uint8";
-    if (type == 9) return "torch.bool";
-    if (type == 10) return "torch.complex64";
-    if (type == 11) return "torch.complex128";
-    if (type == 12) return "torch.complex32";
-    return "null";
+    if (type == 1) return "torch.float";      // 32位浮点数
+    if (type == 2) return "torch.double";     // 64位浮点数
+    if (type == 3) return "torch.half";       // 16位浮点数
+    if (type == 4) return "torch.int";        // 32位整数
+    if (type == 5) return "torch.long";       // 64位整数
+    if (type == 6) return "torch.short";      // 16位整数
+    if (type == 7) return "torch.int8";       // 8位整数
+    if (type == 8) return "torch.uint8";      // 8位无符号整数
+    if (type == 9) return "torch.bool";       // 布尔类型
+    if (type == 10) return "torch.complex64"; // 64位复数
+    if (type == 11) return "torch.complex128";// 128位复数
+    if (type == 12) return "torch.complex32"; // 32位复数
+    return "null";                             // 未知类型
 }
 
 static size_t type_to_elemsize(int type)

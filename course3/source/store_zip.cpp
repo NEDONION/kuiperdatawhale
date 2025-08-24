@@ -12,6 +12,13 @@
 // CONDITIONS OF ANY KIND, either express or implied. See the License for the
 // specific language governing permissions and limitations under the License.
 
+/**
+ * @file store_zip.cpp
+ * @brief ZIP文件存储和解析的实现文件
+ * @details 该文件实现了ZIP格式文件的解析功能，包括文件头解析、CRC32校验、文件解压等
+ * 主要用于处理PNNX模型文件的存储格式
+ */
+
 #include "runtime/store_zip.hpp"
 
 #include <stdio.h>
@@ -22,6 +29,8 @@
 
 namespace pnnx {
 
+// 跨平台的内存对齐宏定义
+// 在MSVC编译器下使用__pragma，在其他编译器下使用__attribute__
 // https://stackoverflow.com/questions/1537964/visual-c-equivalent-of-gccs-attribute-packed
 #ifdef _MSC_VER
 #define PACK(__Declaration__) __pragma(pack(push, 1)) __Declaration__ __pragma(pack(pop))
@@ -29,74 +38,110 @@ namespace pnnx {
 #define PACK(__Declaration__) __Declaration__ __attribute__((__packed__))
 #endif
 
+/**
+ * @brief 本地文件头结构体
+ * @details 定义了ZIP文件中每个文件的本地文件头信息，包括版本、标志、压缩方式等
+ * 使用PACK宏确保结构体按1字节对齐，符合ZIP文件格式规范
+ */
 PACK(struct local_file_header {
-       uint16_t version;
-       uint16_t flag;
-       uint16_t compression;
-       uint16_t last_modify_time;
-       uint16_t last_modify_date;
-       uint32_t crc32;
-       uint32_t compressed_size;
-       uint32_t uncompressed_size;
-       uint16_t file_name_length;
-       uint16_t extra_field_length;
+       uint16_t version;           // 版本号
+       uint16_t flag;              // 通用位标志
+       uint16_t compression;       // 压缩方法
+       uint16_t last_modify_time;  // 最后修改时间
+       uint16_t last_modify_date;  // 最后修改日期
+       uint32_t crc32;             // CRC32校验值
+       uint32_t compressed_size;   // 压缩后大小
+       uint32_t uncompressed_size; // 未压缩大小
+       uint16_t file_name_length;  // 文件名长度
+       uint16_t extra_field_length; // 扩展字段长度
      });
 
+/**
+ * @brief 中央目录文件头结构体
+ * @details 定义了ZIP文件中央目录中每个文件的头信息，包含文件的完整元数据
+ * 中央目录位于ZIP文件末尾，用于快速定位文件
+ */
 PACK(struct central_directory_file_header {
-       uint16_t version_made;
-       uint16_t version;
-       uint16_t flag;
-       uint16_t compression;
-       uint16_t last_modify_time;
-       uint16_t last_modify_date;
-       uint32_t crc32;
-       uint32_t compressed_size;
-       uint32_t uncompressed_size;
-       uint16_t file_name_length;
-       uint16_t extra_field_length;
-       uint16_t file_comment_length;
-       uint16_t start_disk;
-       uint16_t internal_file_attrs;
-       uint32_t external_file_attrs;
-       uint32_t lfh_offset;
+       uint16_t version_made;      // 创建版本
+       uint16_t version;           // 版本号
+       uint16_t flag;              // 通用位标志
+       uint16_t compression;       // 压缩方法
+       uint16_t last_modify_time;  // 最后修改时间
+       uint16_t last_modify_date;  // 最后修改日期
+       uint32_t crc32;             // CRC32校验值
+       uint32_t compressed_size;   // 压缩后大小
+       uint32_t uncompressed_size; // 未压缩大小
+       uint16_t file_name_length;  // 文件名长度
+       uint16_t extra_field_length; // 扩展字段长度
+       uint16_t file_comment_length; // 文件注释长度
+       uint16_t start_disk;        // 开始磁盘号
+       uint16_t internal_file_attrs; // 内部文件属性
+       uint32_t external_file_attrs; // 外部文件属性
+       uint32_t lfh_offset;        // 本地文件头偏移
      });
 
+/**
+ * @brief 中央目录结束记录结构体
+ * @details 定义了ZIP文件中央目录的结束标记，包含目录的统计信息
+ * 用于标识ZIP文件的结束位置
+ */
 PACK(struct end_of_central_directory_record {
-       uint16_t disk_number;
-       uint16_t start_disk;
-       uint16_t cd_records;
-       uint16_t total_cd_records;
-       uint32_t cd_size;
-       uint32_t cd_offset;
-       uint16_t comment_length;
+       uint16_t disk_number;       // 当前磁盘号
+       uint16_t start_disk;        // 开始磁盘号
+       uint16_t cd_records;        // 当前磁盘上的目录记录数
+       uint16_t total_cd_records;  // 总目录记录数
+       uint32_t cd_size;           // 中央目录大小
+       uint32_t cd_offset;         // 中央目录偏移
+       uint16_t comment_length;    // 注释长度
      });
 
+// CRC32校验表，用于快速计算CRC32值
 static uint32_t CRC32_TABLE[256];
 
+/**
+ * @brief 初始化CRC32校验表
+ * @details 该函数会预计算所有可能的CRC32值，存储在全局表中
+ * 使用查表法可以大大提高CRC32计算的效率
+ */
 static void CRC32_TABLE_INIT()
 {
   for (int i = 0; i < 256; i++)
   {
     uint32_t c = i;
+    // 对每个字节值进行8次CRC32计算
     for (int j = 0; j < 8; j++)
     {
       if (c & 1)
-        c = (c >> 1) ^ 0xedb88320;
+        c = (c >> 1) ^ 0xedb88320;  // CRC32多项式
       else
         c >>= 1;
     }
-    CRC32_TABLE[i] = c;
+    CRC32_TABLE[i] = c;  // 存储计算结果
   }
 }
 
+/**
+ * @brief 计算单个字符的CRC32值
+ * @param x 当前的CRC32值
+ * @param ch 要处理的字符
+ * @return 更新后的CRC32值
+ * @details 使用查表法快速计算CRC32，这是CRC32算法的核心函数
+ */
 static uint32_t CRC32(uint32_t x, unsigned char ch)
 {
   return (x >> 8) ^ CRC32_TABLE[(x ^ ch) & 0xff];
 }
 
+/**
+ * @brief 计算数据缓冲区的CRC32值
+ * @param data 数据缓冲区指针
+ * @param len 数据长度
+ * @return 计算得到的CRC32值
+ * @details 该函数会遍历整个数据缓冲区，逐字节计算CRC32校验值
+ */
 static uint32_t CRC32_buffer(const unsigned char* data, int len)
 {
-  uint32_t x = 0xffffffff;
+  uint32_t x = 0xffffffff;  // CRC32初始值
 
   for (int i = 0; i < len; i++)
     x = CRC32(x, data[i]);
